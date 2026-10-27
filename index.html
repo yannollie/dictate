@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0f1720">
+<title>Dictate</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230f766e'/%3E%3Crect x='12' y='6' width='8' height='14' rx='4' fill='white'/%3E%3Cpath d='M8 15a8 8 0 0 0 16 0M16 23v4' stroke='white' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#f6f7f9; --surface:#ffffff; --text:#14181f; --muted:#5b6573; --line:#d9dde3;
+  --accent:#0f766e; --accent-ink:#ffffff; --rec:#dc2626;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#0f1720; --surface:#17212c; --text:#e8edf3; --muted:#93a1b1; --line:#2a3745; --accent:#2dd4bf; --accent-ink:#06201c; --rec:#f87171; }
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;min-height:100dvh;display:flex;flex-direction:column;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{flex:1;width:100%;max-width:680px;margin:0 auto;padding:20px 16px 8px}
+h1{font-size:1.25rem;margin:0 0 4px}
+#status{margin:0 0 14px;color:var(--muted);min-height:1.5em;font-size:.95rem}
+#status.err{color:var(--rec)}
+textarea{width:100%;font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;resize:vertical}
+textarea:focus-visible,button:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#text{min-height:42vh;font-size:1.05rem}
+#interim{min-height:1.5em;padding:6px 4px 0;color:var(--muted);font-style:italic}
+details{margin-top:14px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:0 14px}
+summary{cursor:pointer;padding:12px 0;font-weight:600}
+details[open] summary{border-bottom:1px solid var(--line);margin-bottom:12px}
+details > :last-child{margin-bottom:14px}
+.hint{color:var(--muted);font-size:.9rem;margin:0 0 10px}
+code{background:var(--bg);padding:1px 5px;border-radius:5px;font-size:.9em}
+label.opt{display:flex;gap:10px;align-items:center;padding:8px 0}
+input[type=checkbox]{width:20px;height:20px;accent-color:var(--accent)}
+select{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px}
+.foot{color:var(--muted);font-size:.85rem;margin:18px 0 12px}
+button{font:inherit;cursor:pointer}
+.dock{position:sticky;bottom:0;background:var(--bg);border-top:1px solid var(--line);
+  padding:12px max(16px,calc((100% - 680px)/2)) max(12px,env(safe-area-inset-bottom));
+  display:grid;grid-template-columns:1fr auto 1fr;gap:16px;align-items:center}
+.side{height:48px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--text);font-weight:600}
+.side.strong{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+#mic{width:76px;height:76px;border-radius:50%;border:0;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center}
+#mic.on{background:var(--rec);color:#fff;animation:pulse 1.4s infinite}
+#mic:disabled,.side:disabled{opacity:.4;cursor:not-allowed}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(220,38,38,.5)}70%{box-shadow:0 0 0 18px rgba(220,38,38,0)}100%{box-shadow:0 0 0 0 rgba(220,38,38,0)}}
+@media (prefers-reduced-motion: reduce){#mic.on{animation:none}}
+ul.hist{list-style:none;margin:0;padding:0}
+ul.hist li{padding:10px 0;border-bottom:1px solid var(--line)}
+ul.hist li:last-child{border-bottom:0}
+.meta{color:var(--muted);font-size:.8rem}
+.snip{margin:2px 0 8px;white-space:pre-wrap;word-break:break-word}
+.acts{display:flex;gap:8px}
+.acts button,.small{padding:6px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Dictate</h1>
+    <p id="status" role="status" aria-live="polite">Tap the microphone and speak.</p>
+  </header>
+
+  <textarea id="text" placeholder="Your words appear here. You can also type or edit." spellcheck="true" autocapitalize="sentences"></textarea>
+  <div id="interim" aria-hidden="true"></div>
+
+  <details>
+    <summary>My words</summary>
+    <p class="hint">One per line. Write the correct spelling, like <code>MetaTrader</code>, or what it mishears and what you want, like <code>x a u u s d = XAUUSD</code>. Saved on this phone only.</p>
+    <textarea id="words" rows="6" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="MetaTrader&#10;x a u u s d = XAUUSD"></textarea>
+  </details>
+
+  <details>
+    <summary>Options</summary>
+    <label class="opt">Language
+      <select id="optLang">
+        <option value="en-GB">English (UK)</option>
+        <option value="en-US">English (US)</option>
+        <option value="fr-FR">Français</option>
+      </select>
+    </label>
+    <label class="opt"><input type="checkbox" id="optFillers"> Remove "um", "uh", "erm" and stuttered words</label>
+    <label class="opt"><input type="checkbox" id="optSpoken"> Spoken punctuation</label>
+    <p class="hint">Say these in English: "full stop", "comma", "question mark", "exclamation mark", "new line" or "new paragraph".</p>
+    <label class="opt"><input type="checkbox" id="optFullStop"> Add a full stop after each pause</label>
+    <label class="opt"><input type="checkbox" id="optRemember"> Remember my text and history on this phone</label>
+    <p class="hint">Turn this off on a shared phone. Nothing is then kept once you close the page, and anything already saved is deleted.</p>
+  </details>
+
+  <details id="histBox">
+    <summary>History <span id="histCount"></span></summary>
+    <ul class="hist" id="history"></ul>
+    <button class="small" id="clearHist" type="button">Clear history</button>
+  </details>
+
+  <p class="foot">Chrome sends your voice to Google to turn it into text. Don't dictate anything confidential.</p>
+</main>
+
+<div class="dock">
+  <button class="side" id="clear" type="button">Clear</button>
+  <button id="mic" type="button" aria-pressed="false" aria-label="Start dictation">
+    <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+  </button>
+  <button class="side strong" id="copy" type="button">Copy</button>
+</div>
+
+<noscript><p style="padding:16px">This page needs JavaScript.</p></noscript>
+
+<script>
+'use strict';
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const $ = (id) => document.getElementById(id);
+const els = {
+  text: $('text'), interim: $('interim'), status: $('status'), mic: $('mic'),
+  copy: $('copy'), clear: $('clear'), words: $('words'), history: $('history'),
+  histCount: $('histCount'), clearHist: $('clearHist'),
+  lang: $('optLang'), fillers: $('optFillers'), spoken: $('optSpoken'), fullStop: $('optFullStop'), remember: $('optRemember')
+};
+
+/* ---------- storage (all optional: the page works without it) ---------- */
+const KEYS = { settings: 'dictate.settings', words: 'dictate.words', draft: 'dictate.draft', history: 'dictate.history' };
+function load(key, fallback) { try { const v = localStorage.getItem(key); return v === null ? fallback : v; } catch (e) { return fallback; } }
+function save(key, value) { try { localStorage.setItem(key, value); } catch (e) { /* ignore */ } }
+function forget(key) { try { localStorage.removeItem(key); } catch (e) { /* ignore */ } }
+function persistText(key, value) { if (settings.remember) save(key, value); }   // draft and history only
+function parseJSON(s, fallback) { try { const v = JSON.parse(s); return v === null || v === undefined ? fallback : v; } catch (e) { return fallback; } }
+
+const DEFAULTS = { lang: 'en-GB', fillers: true, spoken: true, fullStop: false, remember: true };
+let settings = Object.assign({}, DEFAULTS, parseJSON(load(KEYS.settings, '{}'), {}));
+let wordRules = [];
+
+/* ---------- text clean-up ---------- */
+const L = '\\p{L}\\p{N}';
+const FILLERS = new RegExp("(?<![" + L + "'’-])(?:u+m+|u+h+|e+rm+|hmm+)(?![" + L + "'’-]),?\\s*", 'giu');
+const REPEATABLE = new RegExp("(?<![" + L + "'’])(i|the|a|an|and|to|of|it|we|so|but|in|is|you|my)(?:\\s+\\1)+(?![" + L + "'’])", 'giu');
+const SPOKEN = [
+  [/\s*\bfull stop\b[ \t]*/gi, '. '],
+  [/\s*\bcomma\b[ \t]*/gi, ', '],
+  [/\s*\bquestion mark\b[ \t]*/gi, '? '],
+  [/\s*\bexclamation (?:mark|point)\b[ \t]*/gi, '! '],
+  [/\s*\bnew paragraph\b\s*/gi, '\n\n'],
+  [/\s*\bnew line\b\s*/gi, '\n']
+];
+
+function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+function buildWordRegex(heard, flexible) {
+  let body;
+  if (flexible) {
+    const compact = heard.replace(/[\s-]+/g, '');
+    body = Array.from(compact).map(escapeRe).join('[ \\-]?');
+  } else {
+    body = heard.split(/\s+/).map(escapeRe).join('\\s+');
+  }
+  return new RegExp('(?<![' + L + '])' + body + '(?![' + L + '])', 'giu');
+}
+
+function parseWords(src) {
+  const rules = [];
+  for (const raw of String(src).split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.charAt(0) === '#') continue;
+    const eq = line.indexOf('=');
+    let heard, correct;
+    if (eq > 0) { heard = line.slice(0, eq).trim(); correct = line.slice(eq + 1).trim(); }
+    else { heard = line; correct = line; }
+    if (!heard || !correct) continue;
+    const solid = heard.replace(/[^\p{L}\p{N}]/gu, '').length;
+    const flexible = eq < 0 && solid >= 6;
+    try { rules.push({ re: buildWordRegex(heard, flexible), correct, len: heard.length }); } catch (e) { /* skip bad line */ }
+  }
+  rules.sort((a, b) => b.len - a.len);
+  return rules;
+}
+
+function capitalise(t, before) {
+  if (/^en/i.test(settings.lang)) {
+    t = t.replace(new RegExp("(?<![" + L + "'’])i(?![" + L + "])", 'gu'), 'I');
+  }
+  t = t.replace(/([.!?]["')\]]*[ \t]+|\n+[ \t]*)(\p{Ll})/gu, (m, p, c) => p + c.toUpperCase());
+  const prev = before.replace(/[ \t]+$/, '');
+  const startsSentence = prev === '' || /[.!?]["')\]]*$/.test(prev) || /\n$/.test(prev);
+  if (startsSentence) t = t.replace(/^\p{Ll}/u, (c) => c.toUpperCase());
+  return t;
+}
+
+function clean(raw, before) {
+  let t = String(raw).replace(/\s+/g, ' ').trim();
+  if (settings.fillers) { t = t.replace(FILLERS, ''); t = t.replace(REPEATABLE, '$1'); }
+  if (settings.spoken) { for (const [re, rep] of SPOKEN) t = t.replace(re, rep); }
+  t = t.replace(/[ \t]{2,}/g, ' ').replace(/^[ \t]+|[ \t]+$/g, '');
+  if (!t) return '';
+  if (settings.fullStop && !/[.!?,:;\n]$/.test(t)) t += '.';
+  t = capitalise(t, before || '');
+  for (const r of wordRules) t = t.replace(r.re, () => r.correct);
+  return t;
+}
+
+function joinChunk(chunk, before, after) {
+  let lead = '', trail = '';
+  if (before && !/\s$/.test(before) && !/^[\s.,!?;:)\]]/.test(chunk)) lead = ' ';
+  if (after && !/^\s/.test(after) && !/^[.,!?;:)\]]/.test(after) && !/\s$/.test(chunk)) trail = ' ';
+  return lead + chunk + trail;
+}
+
+function insertChunk(raw) {
+  const ta = els.text;
+  const s = ta.selectionStart, e = ta.selectionEnd;
+  const before = ta.value.slice(0, s), after = ta.value.slice(e);
+  const chunk = clean(raw, before);
+  if (!chunk) return;
+  const piece = joinChunk(chunk, before, after);
+  ta.value = before + piece + after;
+  const pos = before.length + piece.length;
+  ta.setSelectionRange(pos, pos);
+  if (!after) ta.scrollTop = ta.scrollHeight;
+  onTextChanged();
+}
+
+/* ---------- status / UI ---------- */
+function setStatus(msg, isError) { els.status.textContent = msg; els.status.className = isError ? 'err' : ''; }
+function setUI(state) {
+  const on = state === 'listening' || state === 'starting';
+  els.mic.classList.toggle('on', on);
+  els.mic.setAttribute('aria-pressed', String(on));
+  els.mic.setAttribute('aria-label', on ? 'Stop dictation' : 'Start dictation');
+  if (state === 'starting') setStatus('Starting the microphone…');
+  if (state === 'listening') setStatus('Listening… tap the microphone to stop.');
+}
+
+/* ---------- speech recognition ---------- */
+const MAX_IDLE = 4;   // consecutive silent sessions before auto-stop
+const FATAL = {
+  'not-allowed': 'Microphone blocked. Allow the microphone for this site in Chrome (lock icon > Permissions).',
+  'service-not-allowed': 'Speech recognition is blocked on this device or browser. Try Chrome.',
+  'audio-capture': 'No microphone found, or another app is using it.',
+  'network': 'No connection to the speech service. Check your internet and try again.',
+  'language-not-supported': 'That language is not supported by this browser.'
+};
+let rec = null, want = false, restartTimer = 0, idleRuns = 0, gotResult = false, wakeLock = null;
+
+async function acquireWake() {
+  try {
+    if ('wakeLock' in navigator) {
+      const lock = await navigator.wakeLock.request('screen');
+      if (want) wakeLock = lock; else lock.release();
+    }
+  } catch (e) { /* ignore */ }
+}
+function releaseWake() { try { if (wakeLock) wakeLock.release(); } catch (e) { /* ignore */ } wakeLock = null; }
+
+function startListening() {
+  if (!SR) return;
+  want = true; idleRuns = 0;
+  setUI('starting');
+  acquireWake();
+  launch();
+}
+
+function stopListening(msg, isError) {
+  want = false;
+  clearTimeout(restartTimer);
+  if (rec) { try { rec.stop(); } catch (e) { /* ignore */ } }
+  setUI('idle');
+  setStatus(msg || 'Stopped.', !!isError);
+  releaseWake();
+}
+
+function launch() {
+  clearTimeout(restartTimer);
+  let r;
+  try { r = new SR(); } catch (e) { stopListening('Could not start speech recognition.', true); return; }
+  rec = r; gotResult = false;
+  r.lang = settings.lang; r.continuous = false; r.interimResults = true; r.maxAlternatives = 1;
+  r.onstart = () => { if (rec === r && want) setUI('listening'); };
+  r.onresult = (ev) => {
+    if (rec !== r) return;
+    let interim = '';
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const res = ev.results[i];
+      const txt = res[0] ? res[0].transcript : '';
+      if (res.isFinal) { gotResult = true; idleRuns = 0; insertChunk(txt); } else { interim += txt; }
+    }
+    els.interim.textContent = interim;
+  };
+  r.onerror = (ev) => {
+    if (rec !== r) return;
+    const code = ev && ev.error;
+    if (code === 'no-speech' || code === 'aborted') return;   // onend decides what happens next
+    stopListening(FATAL[code] || ('Speech recognition error: ' + code), true);
+  };
+  r.onend = () => {
+    if (rec !== r) return;
+    rec = null;
+    els.interim.textContent = '';
+    if (!want) { setUI('idle'); return; }
+    if (!gotResult) idleRuns++;
+    if (idleRuns >= MAX_IDLE) { stopListening('Stopped after a stretch of silence.'); return; }
+    restartTimer = setTimeout(launch, 200);
+  };
+  try { r.start(); } catch (e) { stopListening('Could not start the microphone. Tap it to try again.', true); }
+}
+
+els.mic.addEventListener('click', () => { if (want) stopListening('Stopped.'); else startListening(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden && want) stopListening('Paused because the page was hidden.'); });
+
+/* ---------- text, draft, history ---------- */
+let draftTimer = 0;
+function onTextChanged() {
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(() => persistText(KEYS.draft, els.text.value), 300);
+}
+els.text.addEventListener('input', onTextChanged);
+window.addEventListener('pagehide', () => persistText(KEYS.draft, els.text.value));
+
+let history = [];
+function addHistory(text) {
+  text = text.trim();
+  if (!text) return;
+  if (history.length && history[0].text === text) return;
+  history.unshift({ t: new Date().toISOString(), text });
+  history = history.slice(0, 30);
+  persistText(KEYS.history, JSON.stringify(history));
+  renderHistory();
+}
+
+async function copyToClipboard(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* fall through */ }
+  try {
+    const tmp = document.createElement('textarea');
+    tmp.value = text; tmp.setAttribute('readonly', ''); tmp.style.position = 'fixed'; tmp.style.opacity = '0';
+    document.body.appendChild(tmp); tmp.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(tmp);
+    return ok;
+  } catch (e) { return false; }
+}
+
+function renderHistory() {
+  els.history.textContent = '';
+  els.histCount.textContent = history.length ? '(' + history.length + ')' : '';
+  if (!history.length) {
+    const li = document.createElement('li'); li.className = 'meta'; li.textContent = 'Nothing yet. Copy or Clear saves your text here.';
+    els.history.appendChild(li); return;
+  }
+  history.forEach((h, idx) => {
+    const li = document.createElement('li');
+    const meta = document.createElement('div'); meta.className = 'meta';
+    let when = h.t; try { when = new Date(h.t).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch (e) { /* ignore */ }
+    meta.textContent = when;
+    const snip = document.createElement('div'); snip.className = 'snip';
+    snip.textContent = h.text.length > 160 ? h.text.slice(0, 160) + '…' : h.text;
+    const acts = document.createElement('div'); acts.className = 'acts';
+    const c = document.createElement('button'); c.type = 'button'; c.textContent = 'Copy';
+    c.addEventListener('click', async () => { setStatus((await copyToClipboard(h.text)) ? 'Copied from history.' : 'Copy failed.', false); });
+    const d = document.createElement('button'); d.type = 'button'; d.textContent = 'Delete';
+    d.addEventListener('click', () => { history.splice(idx, 1); persistText(KEYS.history, JSON.stringify(history)); renderHistory(); });
+    acts.append(c, d);
+    li.append(meta, snip, acts);
+    els.history.appendChild(li);
+  });
+}
+
+els.copy.addEventListener('click', async () => {
+  const text = els.text.value;
+  if (!text.trim()) { setStatus('Nothing to copy yet.'); return; }
+  if (await copyToClipboard(text)) {
+    addHistory(text);
+    setStatus('Copied. Paste it into any app.');
+    els.copy.textContent = 'Copied';
+    setTimeout(() => { els.copy.textContent = 'Copy'; }, 1500);
+  } else {
+    setStatus('Copy failed. Select the text and copy it by hand.', true);
+  }
+});
+
+els.clear.addEventListener('click', () => {
+  const t = els.text.value;
+  if (t.trim()) addHistory(t);
+  els.text.value = '';
+  els.interim.textContent = '';
+  onTextChanged();
+  setStatus(t.trim() ? 'Cleared. The text is saved in History.' : 'Nothing to clear.');
+});
+
+els.clearHist.addEventListener('click', () => { history = []; persistText(KEYS.history, '[]'); renderHistory(); });
+
+/* ---------- words and options ---------- */
+els.words.addEventListener('input', () => { save(KEYS.words, els.words.value); wordRules = parseWords(els.words.value); });
+function syncSettings() {
+  settings.lang = els.lang.value; settings.fillers = els.fillers.checked;
+  settings.spoken = els.spoken.checked; settings.fullStop = els.fullStop.checked;
+  settings.remember = els.remember.checked;
+  save(KEYS.settings, JSON.stringify(settings));
+  if (settings.remember) { save(KEYS.draft, els.text.value); save(KEYS.history, JSON.stringify(history)); }
+  else { forget(KEYS.draft); forget(KEYS.history); }
+}
+[els.lang, els.fillers, els.spoken, els.fullStop, els.remember].forEach((el) => el.addEventListener('change', syncSettings));
+
+/* ---------- start-up ---------- */
+els.lang.value = settings.lang; els.fillers.checked = !!settings.fillers;
+els.spoken.checked = !!settings.spoken; els.fullStop.checked = !!settings.fullStop;
+els.remember.checked = settings.remember !== false;
+els.words.value = load(KEYS.words, ''); wordRules = parseWords(els.words.value);
+els.text.value = settings.remember !== false ? load(KEYS.draft, '') : '';
+els.text.setSelectionRange(els.text.value.length, els.text.value.length);
+const storedHistory = settings.remember !== false ? parseJSON(load(KEYS.history, '[]'), []) : [];
+history = Array.isArray(storedHistory) ? storedHistory.filter((h) => h && typeof h.text === 'string').slice(0, 30) : [];
+renderHistory();
+if (!SR) {
+  els.mic.disabled = true;
+  setStatus('This browser has no speech recognition. Open this page in Chrome. You can still type here.', true);
+}
+</script>
+</body>
+</html>
